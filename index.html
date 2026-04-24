@@ -46,12 +46,12 @@
   .setup-card p { font-size: 0.9rem; color: var(--text-sub); margin-bottom: 28px; }
   .name-row {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 10px;
     margin-bottom: 24px;
   }
   .name-row input {
-    flex: 1;
+    width: 100%;
     padding: 12px 16px;
     border: 2px solid var(--border);
     border-radius: 12px;
@@ -61,7 +61,7 @@
     text-align: center;
   }
   .name-row input:focus { border-color: var(--accent); }
-  .name-row .amp { color: var(--accent); font-size: 1.2rem; font-weight: bold; }
+  .name-row .amp { color: var(--accent); font-size: 1.1rem; font-weight: bold; text-align: center; }
   .btn-primary {
     width: 100%;
     padding: 14px;
@@ -306,13 +306,24 @@
   .photo-upload-area .upload-icon { font-size: 2rem; margin-bottom: 8px; }
   .photo-upload-area p { font-size: 0.85rem; color: var(--text-sub); }
   #photoInput { display: none; }
-  .preview-img {
-    width: 100%;
-    border-radius: 12px;
-    display: none;
-    margin-top: 8px;
-    max-height: 200px;
+  .preview-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .preview-grid img {
+    width: 72px;
+    height: 72px;
     object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+  }
+  .preview-count {
+    font-size: 0.8rem;
+    color: var(--accent);
+    font-weight: bold;
+    margin-top: 6px;
   }
 
   /* ── 詳細モーダル ── */
@@ -423,11 +434,12 @@
       </div>
       <div class="form-group">
         <label>写真</label>
-        <input type="file" id="photoInput" accept="image/*" onchange="previewPhoto(event)">
+        <input type="file" id="photoInput" accept="image/*" multiple onchange="previewPhoto(event)">
         <label for="photoInput" class="photo-upload-area">
           <div class="upload-icon">📷</div>
-          <p>タップして写真を選ぶ（カメラロール・撮影どちらもOK）</p>
-          <img id="previewImg" class="preview-img">
+          <p>タップして写真を選ぶ（複数選択OK）</p>
+          <div class="preview-grid" id="previewGrid"></div>
+          <div class="preview-count" id="previewCount"></div>
         </label>
       </div>
       <div class="form-group">
@@ -455,6 +467,7 @@
       <button class="close-btn" onclick="closeDetail()">✕</button>
     </div>
     <img id="detail-photo" class="detail-photo" src="" alt="">
+    <div id="detail-photo-scroll" style="display:none;overflow-x:auto;gap:4px;background:#f0ebe4;"></div>
     <div class="detail-body">
       <div class="detail-title" id="detail-title"></div>
       <div class="detail-meta">
@@ -474,7 +487,7 @@
 let memories = [];
 let nameA = '', nameB = '';
 let selectedAuthor = 'a';
-let photoData = null;
+let photosData = [];
 let currentDetailId = null;
 let currentFilter = 'all';
 
@@ -542,14 +555,16 @@ function renderGrid() {
     const authorName = m.author === 'a' ? nameA : nameB;
     const authorCls = m.author === 'a' ? 'author-a' : 'author-b';
     const dateStr = m.date ? formatDate(m.date) : '';
+    const firstPhoto = (m.photos && m.photos[0]) || m.photo || null;
+    const photoCount = m.photos ? m.photos.length : (m.photo ? 1 : 0);
     return `
       <div class="memory-card" onclick="openDetail('${m.id}')">
-        ${m.photo ? `<img src="${m.photo}" alt="${m.title}" loading="lazy">` : ''}
+        ${firstPhoto ? `<img src="${firstPhoto}" alt="${escHtml(m.title)}" loading="lazy">` : ''}
         <div class="card-info">
           <div class="card-title">${escHtml(m.title)}</div>
           <div class="card-meta">
             <span class="card-author ${authorCls}">${escHtml(authorName)}</span>
-            <span>${dateStr}</span>
+            <span>${photoCount > 1 ? `📷${photoCount} ` : ''}${dateStr}</span>
           </div>
         </div>
       </div>`;
@@ -576,11 +591,12 @@ function setFilter(f, el) {
 // ── 追加モーダル ────────────────────────────────────
 function openAddModal() {
   selectedAuthor = 'a';
-  photoData = null;
+  photosData = [];
   document.getElementById('inputTitle').value = '';
   document.getElementById('inputDate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('inputMemory').value = '';
-  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('previewGrid').innerHTML = '';
+  document.getElementById('previewCount').textContent = '';
   document.getElementById('photoInput').value = '';
   highlightAuthor();
   document.getElementById('add-modal').classList.add('show');
@@ -598,31 +614,43 @@ function highlightAuthor() {
   document.getElementById('btnB').className = 'author-btn' + (selectedAuthor === 'b' ? ' selected-b' : '');
 }
 
-function previewPhoto(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const original = new Image();
-    original.onload = () => {
-      // 長辺を最大1200pxにリサイズ（iPhone大容量写真対策）
-      const MAX = 1200;
-      let w = original.width, h = original.height;
-      if (w > MAX || h > MAX) {
-        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-        else { w = Math.round(w * MAX / h); h = MAX; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(original, 0, 0, w, h);
-      photoData = canvas.toDataURL('image/jpeg', 0.82);
-      const img = document.getElementById('previewImg');
-      img.src = photoData;
-      img.style.display = 'block';
+function resizeImage(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const original = new Image();
+      original.onload = () => {
+        const MAX = 1200;
+        let w = original.width, h = original.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(original, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      original.src = ev.target.result;
     };
-    original.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function previewPhoto(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  photosData = [];
+  document.getElementById('previewGrid').innerHTML = '';
+  document.getElementById('previewCount').textContent = '処理中...';
+  for (const file of files) {
+    const data = await resizeImage(file);
+    photosData.push(data);
+    const img = document.createElement('img');
+    img.src = data;
+    document.getElementById('previewGrid').appendChild(img);
+  }
+  document.getElementById('previewCount').textContent = `${photosData.length}枚選択済み`;
 }
 
 function saveMemory() {
@@ -635,7 +663,7 @@ function saveMemory() {
     title,
     date,
     memory,
-    photo: photoData,
+    photos: photosData.length ? photosData : [],
     createdAt: new Date().toISOString()
   };
   memories.push(m);
@@ -652,8 +680,25 @@ function openDetail(id) {
   const authorName = m.author === 'a' ? nameA : nameB;
   const authorCls = m.author === 'a' ? 'author-a' : 'author-b';
   document.getElementById('detail-title-header').textContent = '';
-  document.getElementById('detail-photo').src = m.photo || '';
-  document.getElementById('detail-photo').style.display = m.photo ? 'block' : 'none';
+  const allPhotos = m.photos && m.photos.length ? m.photos : (m.photo ? [m.photo] : []);
+  const photoEl = document.getElementById('detail-photo');
+  const photoScroll = document.getElementById('detail-photo-scroll');
+  if (allPhotos.length === 0) {
+    photoEl.style.display = 'none';
+    if (photoScroll) photoScroll.style.display = 'none';
+  } else if (allPhotos.length === 1) {
+    photoEl.src = allPhotos[0];
+    photoEl.style.display = 'block';
+    if (photoScroll) photoScroll.style.display = 'none';
+  } else {
+    photoEl.style.display = 'none';
+    if (photoScroll) {
+      photoScroll.innerHTML = allPhotos.map(p =>
+        `<img src="${p}" style="height:260px;width:auto;border-radius:0;flex-shrink:0;object-fit:cover;">`
+      ).join('');
+      photoScroll.style.display = 'flex';
+    }
+  }
   document.getElementById('detail-title').textContent = m.title;
   const authorEl = document.getElementById('detail-author');
   authorEl.textContent = authorName;
